@@ -3,7 +3,7 @@
    Ocene/beleške/moja mesta: localStorage na telefonu + izvoz/uvoz JSON fajla. */
 'use strict';
 
-const VERSION = '1.0.0 · 26.10.2026';
+const VERSION = '1.0.1 · 26.10.2026';
 
 /* ======================= Konfiguracija ======================= */
 
@@ -238,35 +238,56 @@ function classify(el) {
 
 /* ======================= Overpass ======================= */
 
-function baseQuery(lat, lon, r) {
-  const A = `(around:${r},${lat.toFixed(5)},${lon.toFixed(5)})`;
-  return `[out:json][timeout:60];
+function bbox(lat, lon, r) {
+  const dLat = r / 111320, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
+  return [lat - dLat, lon - dLon, lat + dLat, lon + dLon].map((v) => v.toFixed(5)).join(',');
+}
+// 1. upit: ono najvažnije za kamion (malo podataka, brzo)
+function coreQuery(lat, lon, r) {
+  const B = `(${bbox(lat, lon, r)})`;
+  return `[out:json][timeout:25];
 (
-  nwr${A}[amenity=parking][hgv~"^(yes|designated|only)$"];
-  nwr${A}[amenity=parking]["capacity:hgv"];
-  nwr${A}[amenity=parking][name~"truck|lkw|vrachtwagen|poids|kamion|camion|autohof",i];
-  nwr${A}[highway~"^(rest_area|services)$"];
-  nwr${A}[amenity=fuel];
-  nwr${A}[shop~"^(supermarket|department_store|general|variety_store|doityourself|hardware|convenience|discount)$"];
-  nwr${A}[amenity=shower];
-  nwr${A}[shower~"^(yes|hot)$"];
-  nwr${A}[shop~"^(laundry|dry_cleaning)$"];
-  nwr${A}[amenity~"^(car_wash|vehicle_wash)$"][hgv~"^(yes|designated|only)$"];
-  nwr${A}[amenity~"^(car_wash|vehicle_wash)$"][name~"truck|lkw|vrachtwagen|poids|kamion|camion",i];
+  nwr${B}[amenity=parking][hgv~"^(yes|designated|only)$"];
+  nwr${B}[amenity=parking]["capacity:hgv"];
+  nwr${B}[amenity=parking][name~"truck|lkw|vrachtwagen|poids|kamion|camion|autohof",i];
+  nwr${B}[highway~"^(rest_area|services)$"];
+  nwr${B}[amenity=fuel];
+  nwr${B}[amenity=shower];
+  nwr${B}[shower~"^(yes|hot)$"];
+  nwr${B}[shop~"^(laundry|dry_cleaning)$"];
+  nwr${B}[amenity~"^(car_wash|vehicle_wash)$"][hgv~"^(yes|designated|only)$"];
+  nwr${B}[amenity~"^(car_wash|vehicle_wash)$"][name~"truck|lkw|vrachtwagen|poids|kamion|camion",i];
 );
 out center tags;`;
 }
+// 2. upit: prodavnice (u gradovima ih ima mnogo, zato posebno)
+function shopQuery(lat, lon, r) {
+  const B = `(${bbox(lat, lon, r)})`;
+  return `[out:json][timeout:25];
+nwr${B}[shop~"^(supermarket|department_store|general|variety_store|doityourself|hardware|convenience|discount)$"];
+out center tags;`;
+}
 function industrialQuery(lat, lon, r) {
-  return `[out:json][timeout:60];
-way(around:${r},${lat.toFixed(5)},${lon.toFixed(5)})[landuse=industrial];
+  return `[out:json][timeout:25];
+way(${bbox(lat, lon, r)})[landuse=industrial];
 out tags center 300;`;
 }
 
+class LoadError extends Error {}
+function explain(errs) {
+  if (errs.some((e) => /429/.test(e))) return 'Server mape je trenutno zauzet za tvoju mrežu. Sačekaj minut ili probaj na Wi‑Fi.';
+  if (errs.some((e) => /abort|time/i.test(e))) return 'Server mape ne odgovara na vreme. Probaj manji krug (3 km) ili ponovo za minut.';
+  if (!navigator.onLine) return 'Nema interneta.';
+  return 'Ne mogu da učitam podatke (' + errs.join(', ') + '). Pokušaj ponovo.';
+}
+
 async function overpass(query) {
-  let lastErr;
-  for (const url of OVERPASS) {
+  const errs = [];
+  const good = store('goodServer');
+  const order = OVERPASS.slice().sort((a, b) => (b === good) - (a === good));
+  for (const url of order) {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 70000);
+    const timer = setTimeout(() => ctl.abort(), 35000);
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -275,15 +296,17 @@ async function overpass(query) {
         signal: ctl.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) { lastErr = new Error('Server ' + res.status); continue; }
+      if (!res.ok) { errs.push(res.status + ''); continue; }
       const json = await res.json();
+      if (json.remark && /runtime error|timed out/i.test(json.remark) && !(json.elements || []).length) { errs.push('timeout'); continue; }
+      store('goodServer', url);
       return json.elements || [];
     } catch (e) {
       clearTimeout(timer);
-      lastErr = e;
+      errs.push(e.name === 'AbortError' ? 'timeout' : (e.message || 'mreža'));
     }
   }
-  throw lastErr || new Error('Nema veze');
+  throw new LoadError(explain(errs));
 }
 
 function processElements(elements) {
@@ -316,43 +339,66 @@ function cacheFind(center, radius, kind) {
 
 /* ======================= Učitavanje ======================= */
 
+function inRadius(items, center, r) {
+  return items.filter((it) => distM(center, it) <= r);
+}
+function doneStatus() {
+  const n = visibleItems().length;
+  setStatus((state.offline ? 'Bez interneta — podaci od ' + fmtDate(state.dataTime) + '. ' : '') + n + ' mesta u krugu od ' + fmtDist(state.radius) +
+    (n > MAX_PINS ? ` (na mapi najbližih ${MAX_PINS}, sva u listi).` : '.'));
+}
+
 async function load(center) {
   if (state.loading) return;
   state.loading = true;
   state.center = center;
   store('lastCenter', center);
   $('#btn-here').hidden = true;
-  setStatus('Tražim u krugu od ' + fmtDist(state.radius) + '…');
   drawSearchCircle();
+  const r = state.radius;
 
+  // 1) parking, gorivo, tuševi, veš, perionice
+  setStatus('Učitavam parkinge i pumpe…');
+  let core, shops, err;
   try {
-    const els = await overpass(baseQuery(center.lat, center.lon, state.radius));
-    state.items = processElements(els);
-    state.dataTime = Date.now();
-    state.offline = false;
-    cacheSave(center, state.radius, 'base', state.items);
-  } catch (e) {
-    const hit = cacheFind(center, state.radius, 'base');
+    core = inRadius(processElements(await overpass(coreQuery(center.lat, center.lon, r))), center, r);
+  } catch (e) { err = e; }
+
+  if (core) {
+    state.items = core; state.dataTime = Date.now(); state.offline = false;
+    render();
+    setStatus('Učitavam prodavnice…');
+    // 2) prodavnice
+    try {
+      shops = inRadius(processElements(await overpass(shopQuery(center.lat, center.lon, r))), center, r);
+      const ids = new Set(core.map((x) => x.id));
+      state.items = core.concat(shops.filter((x) => !ids.has(x.id)));
+    } catch (e) {
+      toast('Prodavnice nisu učitane: ' + e.message);
+    }
+    cacheSave(center, r, 'base', state.items);
+  } else {
+    const hit = cacheFind(center, r, 'base');
     if (hit) {
       state.items = hit.items; state.dataTime = hit.t; state.offline = true;
     } else {
       state.loading = false;
-      setStatus('Ne mogu da učitam podatke. Proveri internet i pokušaj ponovo.', true);
+      render();
+      setStatus(err instanceof LoadError ? err.message : 'Ne mogu da učitam podatke. Pokušaj ponovo.', true);
       return;
     }
   }
   if (state.cats.industrial) await loadIndustrial(center);
   state.loading = false;
   render();
-  const n = visibleItems().length;
-  setStatus((state.offline ? 'Bez interneta — podaci od ' + fmtDate(state.dataTime) + '. ' : '') + n + ' mesta u krugu od ' + fmtDist(state.radius) +
-    (n > MAX_PINS ? ` (na mapi najbližih ${MAX_PINS}, sva u listi).` : '.'));
+  doneStatus();
+  if (!core && err) toast(err.message);
 }
 
 async function loadIndustrial(center) {
   try {
     const els = await overpass(industrialQuery(center.lat, center.lon, state.radius));
-    state.industrial = processElements(els);
+    state.industrial = inRadius(processElements(els), center, state.radius);
     cacheSave(center, state.radius, 'ind', state.industrial);
   } catch (e) {
     const hit = cacheFind(center, state.radius, 'ind');
@@ -733,7 +779,7 @@ function renderCats() {
     if (k === 'industrial' && state.cats[k] && state.center && !state.industrial.length) {
       setStatus('Učitavam industrijske zone…');
       await loadIndustrial(state.center);
-      setStatus(visibleItems().length + ' mesta u krugu od ' + fmtDist(state.radius) + '.');
+      doneStatus();
     }
     render();
   }));
