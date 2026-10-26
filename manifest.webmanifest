@@ -1,0 +1,17 @@
+{
+  "name": "Usput — za vozače kamiona",
+  "short_name": "Usput",
+  "description": "Parking, gorivo, AS 24, prodavnice, tuševi i veš u blizini.",
+  "lang": "sr-Latn",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14171c",
+  "theme_color": "#14171c",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

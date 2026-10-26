@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Usput</title>
+<meta name="description" content="Parking, gorivo, AS 24, prodavnice, tuševi i veš u blizini — za vozače kamiona.">
+<meta name="theme-color" content="#14171c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="bar">
+    <div class="bar-top">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">U</span>
+        <span class="brand-name">Usput</span>
+      </div>
+      <button id="btn-locate" class="btn btn-primary" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7" fill="none"/></svg>
+        <span>Gde sam</span>
+      </button>
+    </div>
+
+    <form id="search-form" class="search" autocomplete="off">
+      <input id="search-input" type="search" placeholder="Mesto ili adresa (npr. Maasvlakte)" aria-label="Pretraga mesta">
+      <button class="btn" type="submit">Traži</button>
+    </form>
+
+    <div class="status-row">
+      <span id="status" class="status">Pritisni „Gde sam“ ili upiši mesto.</span>
+      <div class="radius" role="group" aria-label="Poluprečnik">
+        <button type="button" data-r="3000">3 km</button>
+        <button type="button" data-r="10000" class="on">10 km</button>
+        <button type="button" data-r="25000">25 km</button>
+      </div>
+    </div>
+
+    <div id="cats" class="chips" role="group" aria-label="Kategorije"></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-map" class="on" aria-selected="true">Mapa</button>
+    <button type="button" role="tab" id="tab-list" aria-selected="false">Lista <span id="count" class="count">0</span></button>
+    <button type="button" role="tab" id="tab-filters" aria-selected="false">Filteri <span id="fcount" class="count" hidden>0</span></button>
+    <button type="button" role="tab" id="tab-mine" aria-selected="false">Moje</button>
+  </nav>
+
+  <main class="views">
+    <section id="view-map" class="view on">
+      <div id="map" aria-label="Mapa"></div>
+      <button id="btn-here" class="here" type="button" hidden>Pretraži ovde</button>
+      <button id="btn-add" class="fab" type="button" aria-label="Dodaj svoje mesto">+</button>
+    </section>
+
+    <section id="view-list" class="view">
+      <div class="list-head">
+        <label>Sortiraj
+          <select id="sort">
+            <option value="dist">po udaljenosti</option>
+            <option value="rating">po mojoj oceni</option>
+            <option value="name">po nazivu</option>
+          </select>
+        </label>
+      </div>
+      <ul id="list" class="list"></ul>
+      <p id="list-empty" class="empty" hidden></p>
+    </section>
+
+    <section id="view-filters" class="view pad">
+      <div id="filters"></div>
+    </section>
+
+    <section id="view-mine" class="view pad">
+      <h2>Moje ocene i mesta</h2>
+      <p class="muted">Ocene, beleške i mesta koja dodaš čuvaju se na ovom telefonu. Izvezi ih i pošalji vozačima, oni ih uvezu kod sebe.</p>
+      <div class="row-btns">
+        <button id="btn-export" class="btn btn-primary" type="button">Izvezi (pošalji)</button>
+        <label class="btn" for="import-file">Uvezi fajl</label>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+      </div>
+      <p id="mine-msg" class="msg" role="status"></p>
+      <h3>Moja mesta</h3>
+      <ul id="mine-places" class="list compact"></ul>
+      <h3>Ocenjena mesta</h3>
+      <ul id="mine-notes" class="list compact"></ul>
+      <h3>Izvori podataka</h3>
+      <p class="muted small">Mesta dolaze iz OpenStreetMap-a (© saradnici OpenStreetMap, ODbL). Ako nešto fali ili je pogrešno, u detaljima mesta pritisni „Ispravi na mapi“ — ispravka pomaže svima. Recenzije sa Google-a, Truckfly-a i foruma otvaraš preko dugmadi u detaljima mesta.</p>
+      <p class="muted small">Verzija <span id="ver"></span></p>
+    </section>
+  </main>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-grip" data-close></div>
+      <div id="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
