@@ -4,7 +4,7 @@ name: Baza i objava
 
 on:
   push:
-    branches: [main]
+    branches: [main, baza]
   schedule:
     - cron: '0 3 * * 1' # ponedeljkom u 03:00 UTC
   workflow_dispatch:
