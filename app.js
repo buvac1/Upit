@@ -3,7 +3,7 @@
    Ocene/beleške/moja mesta: localStorage na telefonu + izvoz/uvoz JSON fajla. */
 'use strict';
 
-const VERSION = '1.0.2 · 27.10.2026';
+const VERSION = '1.1.0 · 28.10.2026';
 
 /* ======================= Konfiguracija ======================= */
 
@@ -15,6 +15,7 @@ const OVERPASS = [
 ];
 const OVERPASS_TIMEOUT = 40000; // ukupno čekanje za sve servere zajedno
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const DATA = 'data/';           // naša baza (NL, BE, DE, DK) — pravi je .github/workflows/podaci.yml
 const MAX_PINS = 400;           // najviše markera na mapi (najbliži)
 const CACHE_MAX = 4;            // koliko poslednjih pretraga čuvamo za rad bez interneta
 
@@ -164,7 +165,7 @@ function classify(el) {
   const t = el.tags || {};
   const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
   if (lat == null || lon == null) return null;
-  const it = { id: el.type + '/' + el.id, osmType: el.type, osmId: el.id, lat, lon, t, also: [] };
+  const it = { id: el.type + '/' + el.id, osmType: el.type === 'fh' ? null : el.type, osmId: el.id, lat, lon, t, also: [] };
 
   if (t.landuse === 'industrial') {
     it.cat = 'industrial';
@@ -316,6 +317,41 @@ async function overpass(query) {
   }
 }
 
+/* ======================= Naša baza ======================= */
+
+// Pločice iz data/ — brzo i bez tuđih servera. null = baza ne pokriva ovaj krug, pa se pita Overpass.
+let baseMeta;
+async function loadBaseMeta() {
+  if (baseMeta !== undefined) return baseMeta;
+  try {
+    const res = await fetch(DATA + 'meta.json', { cache: 'no-cache' });
+    baseMeta = res.ok ? await res.json() : null;
+    if (baseMeta) baseMeta.covered = new Set(baseMeta.covered);
+  } catch (e) {
+    baseMeta = undefined; // bez interneta — probaj opet sledeći put
+    return null;
+  }
+  return baseMeta;
+}
+async function fromBase(kind, center, r) {
+  const m = await loadBaseMeta();
+  if (!m) return null;
+  const [s, w, n, e] = bbox(center.lat, center.lon, r).split(',').map(Number);
+  const keys = [];
+  for (let i = Math.floor(s / m.tile); i <= Math.floor(n / m.tile); i++) {
+    for (let j = Math.floor(w / m.tile); j <= Math.floor(e / m.tile); j++) keys.push(i + '_' + j);
+  }
+  // Odlučuje pločica centra; susedne bez podataka su more ili zemlja van baze i ostaju prazne.
+  if (!m.covered.has(Math.floor(center.lat / m.tile) + '_' + Math.floor(center.lon / m.tile))) return null;
+  const have = new Set(m[kind]);
+  const parts = await Promise.all(keys.filter((k) => have.has(k)).map(async (k) => {
+    const res = await fetch(`${DATA}${kind}/${k}.json`);
+    if (!res.ok) throw new LoadError('Ne mogu da učitam bazu (' + res.status + '). Pokušaj ponovo.');
+    return res.json();
+  }));
+  return parts.flat();
+}
+
 function processElements(elements) {
   const seen = new Set();
   const out = [];
@@ -368,7 +404,7 @@ async function load(center) {
   setStatus('Učitavam parkinge i pumpe…');
   let core, shops, err;
   try {
-    core = inRadius(processElements(await overpass(coreQuery(center.lat, center.lon, r))), center, r);
+    core = inRadius(processElements((await fromBase('core', center, r)) ?? (await overpass(coreQuery(center.lat, center.lon, r)))), center, r);
   } catch (e) { err = e; }
 
   if (core) {
@@ -377,7 +413,7 @@ async function load(center) {
     setStatus('Učitavam prodavnice…');
     // 2) prodavnice
     try {
-      shops = inRadius(processElements(await overpass(shopQuery(center.lat, center.lon, r))), center, r);
+      shops = inRadius(processElements((await fromBase('shop', center, r)) ?? (await overpass(shopQuery(center.lat, center.lon, r)))), center, r);
       const ids = new Set(core.map((x) => x.id));
       state.items = core.concat(shops.filter((x) => !ids.has(x.id)));
     } catch (e) {
@@ -404,7 +440,7 @@ async function load(center) {
 
 async function loadIndustrial(center) {
   try {
-    const els = await overpass(industrialQuery(center.lat, center.lon, state.radius));
+    const els = (await fromBase('ind', center, state.radius)) ?? (await overpass(industrialQuery(center.lat, center.lon, state.radius)));
     state.industrial = inRadius(processElements(els), center, state.radius);
     cacheSave(center, state.radius, 'ind', state.industrial);
   } catch (e) {
@@ -493,7 +529,8 @@ function initMap() {
   map = L.map('map', { zoomControl: false, attributionControl: true }).setView([51.0, 8.5], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, subdomains: 'abc',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' +
+      ' · parkinzi: <a href="https://doi.org/10.5281/zenodo.14643147" target="_blank" rel="noopener">Fraunhofer ISI</a> (CC BY 4.0)',
   }).addTo(map);
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
   layer = L.layerGroup().addTo(map);
@@ -665,6 +702,11 @@ function factsHtml(it) {
   if (web) rows.push(['Sajt', `<a href="${esc(/^https?:/.test(web) ? web : 'https://' + web)}" target="_blank" rel="noopener">${esc(web.replace(/^https?:\/\//, ''))}</a>`]);
   if (t.operator && t.operator !== it.name) rows.push(['Operater', esc(t.operator)]);
   if (t.description) rows.push(['Opis', esc(t.description)]);
+  if (t['usput:sstpa']) rows.push(['Bezbednost', 'Sertifikovan bezbedan parking (EU SSTPA)']);
+  if (t['usput:road']) rows.push(['Autoput', esc('blizu ' + t['usput:road'])]);
+  if (t['usput:zone']) rows.push(['Okolina', esc(t['usput:zone'])]);
+  if (t['usput:area']) rows.push(['Površina', esc('oko ' + Number(t['usput:area']).toLocaleString('sr') + ' m²')]);
+  if (t['usput:src']) rows.push(['Izvor', 'Fraunhofer ISI (CC BY 4.0) — lokacija može biti približna']);
   if (it.cat === 'fuel' && it.as24) rows.push(['Napomena', 'AS 24 stanice su uglavnom bez osoblja i rade samo sa AS 24 karticom (ponegde i druge kartice). Proveri pre dolaska.']);
   if (it.cat === 'industrial') rows.push(['Napomena', 'Industrijska zona, nije zvanični parking. Proveri lokalne znakove i pravila za noćenje.']);
   if (it.cat === 'parking' && it.rest && !it.truck) rows.push(['Napomena', 'Odmorište — nije sigurno da ima mesta za kamione. Proveri znakove.']);

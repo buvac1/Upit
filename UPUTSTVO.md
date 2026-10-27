@@ -10,14 +10,18 @@ Usput je web aplikacija za telefon. Pokazuje šta ima oko tebe: parkinge za kami
 | app.js | Sva logika: lokacija, pretraga, filteri, ocene |
 | style.css | Izgled (svetla i tamna tema) |
 | manifest.webmanifest, sw.js, icon.svg, icon-192.png, icon-512.png | Da se instalira na telefon i radi bez interneta |
+| tools/build_data.py | Pravi bazu mesta (vidi „Odakle su podaci“) |
+| .github/workflows/podaci.yml | Automatski pravi bazu i objavljuje aplikaciju |
 
 ## Adresa aplikacije
 
-Aplikacija je objavljena preko GitHub Pages (repozitorijum `buvac1/Upit`, grana `main`, folder `/`):
+Aplikacija je objavljena preko GitHub Pages (repozitorijum `buvac1/Upit`):
 
 **https://buvac1.github.io/Upit/**
 
-Taj link pošalješ vozačima. Svaka izmena poslata na `main` se sama objavi za 1–2 minuta. Mora da bude `https://` adresa, inače telefon ne daje GPS.
+Taj link pošalješ vozačima. Mora da bude `https://` adresa, inače telefon ne daje GPS.
+
+Objavu radi GitHub Actions posao „Baza i objava“: posle svake izmene poslate na `main` (za oko 2 minuta) i svakog ponedeljka ujutru, kada se baza pravi iznova. Tok posla se vidi na GitHub-u pod **Actions**.
 
 ## Instalacija na telefon
 
@@ -46,7 +50,11 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 
 ## Odakle su podaci
 
-- **Mesta:** OpenStreetMap (besplatno, cela Evropa). Ako mesto fali ili je pogrešno, „Ispravi na mapi“ vodi na OpenStreetMap gde svako može da ga ispravi.
+- **Naša baza (Holandija, Belgija, Nemačka, Danska):** aplikacija ne zavisi od tuđih servera, nego čita sopstvenu bazu sa istog sajta, za 1–2 sekunde. Baza se pravi iznova svakog ponedeljka iz:
+  - **OpenStreetMap** izvoda po zemljama (Geofabrik): pumpe, AS 24, odmorišta, parkinzi, prodavnice, tuševi, veš, perionice, industrijske zone;
+  - **Fraunhofer ISI „European Truck Parking Locations“** (CC BY 4.0, [zenodo.org/records/14643147](https://zenodo.org/records/14643147)): kamionski parkinzi kojih nema u OpenStreetMap-u, sa oznakom bezbednog parkinga (SSTPA), autoputem i okolinom. Isti izvor koristi i Buvac TMS.
+- **Van te četiri zemlje:** aplikacija pita besplatne OpenStreetMap (Overpass) servere, kao ranije. Oni umeju da budu zagušeni, pa tamo učitavanje može da potraje ili ne uspe. Druge zemlje se dodaju u `tools/build_data.py` (COUNTRIES) i `.github/workflows/podaci.yml`.
+- Ako mesto fali ili je pogrešno, „Ispravi na mapi“ vodi na OpenStreetMap gde svako može da ga ispravi. Ispravka stiže u aplikaciju sledećeg ponedeljka.
 - **Recenzije:** Google, Truckfly i forumi se otvaraju jednim dugmetom iz detalja mesta. Automatski uvoz tih recenzija nije moguć bez njihovog API pristupa (Google traži ključ i plaća se preko limita; Truckfly i društvene mreže nemaju otvoren pristup).
 - **Naše ocene:** ono što ti i vozači upišete.
 
@@ -58,4 +66,4 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 4. **Ruta** — šta ima duž puta do odredišta, ne samo u krugu.
 5. **Povezivanje sa Buvac TMS** — troškovi parkinga i tuševa direktno u evidenciju.
 
-Verzija 1.0.2 · 27.10.2026
+Verzija 1.1.0 · 28.10.2026
