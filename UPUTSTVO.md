@@ -9,19 +9,15 @@ Usput je web aplikacija za telefon. Pokazuje šta ima oko tebe: parkinge za kami
 | index.html | Sama aplikacija (stranica) |
 | app.js | Sva logika: lokacija, pretraga, filteri, ocene |
 | style.css | Izgled (svetla i tamna tema) |
-| manifest.webmanifest, sw.js, icons/ | Da se instalira na telefon i radi bez interneta |
+| manifest.webmanifest, sw.js, icon.svg, icon-192.png, icon-512.png | Da se instalira na telefon i radi bez interneta |
 
-## Postavljanje na internet (besplatno, jednom)
+## Adresa aplikacije
 
-Aplikacija mora da bude na `https://` adresi, inače telefon ne daje GPS. Najlakše je preko GitHub Pages:
+Aplikacija je objavljena preko GitHub Pages (repozitorijum `buvac1/Upit`, grana `main`, folder `/`):
 
-1. Napravi nalog na github.com (besplatno).
-2. Gore desno klikni **+** → **New repository**. Ime: `usput`. Označi **Public**. Klikni **Create repository**.
-3. Klikni **uploading an existing file**, prevuci SVE fajlove i folder `icons` iz ovog foldera, pa **Commit changes**.
-4. U repozitorijumu: **Settings** → **Pages** → Source: **Deploy from a branch** → Branch: **main**, folder **/ (root)** → **Save**.
-5. Posle 1–2 minuta aplikacija je na: `https://TVOJE-IME.github.io/usput/`
+**https://buvac1.github.io/Upit/**
 
-Taj link pošalješ vozačima.
+Taj link pošalješ vozačima. Svaka izmena poslata na `main` se sama objavi za 1–2 minuta. Mora da bude `https://` adresa, inače telefon ne daje GPS.
 
 ## Instalacija na telefon
 
@@ -62,4 +58,4 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 4. **Ruta** — šta ima duž puta do odredišta, ne samo u krugu.
 5. **Povezivanje sa Buvac TMS** — troškovi parkinga i tuševa direktno u evidenciju.
 
-Verzija 1.0.0 · 26.10.2026
+Verzija 1.0.2 · 27.10.2026

@@ -3,7 +3,7 @@
    Ocene/beleške/moja mesta: localStorage na telefonu + izvoz/uvoz JSON fajla. */
 'use strict';
 
-const VERSION = '1.0.1 · 26.10.2026';
+const VERSION = '1.0.2 · 27.10.2026';
 
 /* ======================= Konfiguracija ======================= */
 
@@ -11,7 +11,9 @@ const OVERPASS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
+const OVERPASS_TIMEOUT = 40000; // ukupno čekanje za sve servere zajedno
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 const MAX_PINS = 400;           // najviše markera na mapi (najbliži)
 const CACHE_MAX = 4;            // koliko poslednjih pretraga čuvamo za rad bez interneta
@@ -281,32 +283,37 @@ function explain(errs) {
   return 'Ne mogu da učitam podatke (' + errs.join(', ') + '). Pokušaj ponovo.';
 }
 
+// Svi serveri se pitaju odjednom; prvi ispravan odgovor pobeđuje, ostali se prekidaju.
+// (Ranije jedan po jedan sa 35 s čekanja — kad su zagušeni, vozač je čekao skoro 2 minuta.)
 async function overpass(query) {
   const errs = [];
-  const good = store('goodServer');
-  const order = OVERPASS.slice().sort((a, b) => (b === good) - (a === good));
-  for (const url of order) {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 35000);
+  const ctls = OVERPASS.map(() => new AbortController());
+  const timer = setTimeout(() => ctls.forEach((c) => c.abort()), OVERPASS_TIMEOUT);
+  const ask = async (url, i) => {
     try {
       const res = await fetch(url, {
         method: 'POST',
         body: 'data=' + encodeURIComponent(query),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        signal: ctl.signal,
+        signal: ctls[i].signal,
       });
-      clearTimeout(timer);
-      if (!res.ok) { errs.push(res.status + ''); continue; }
+      if (!res.ok) throw new Error(res.status + '');
       const json = await res.json();
-      if (json.remark && /runtime error|timed out/i.test(json.remark) && !(json.elements || []).length) { errs.push('timeout'); continue; }
-      store('goodServer', url);
+      if (json.remark && /runtime error|timed out/i.test(json.remark) && !(json.elements || []).length) throw new Error('timeout');
       return json.elements || [];
     } catch (e) {
-      clearTimeout(timer);
       errs.push(e.name === 'AbortError' ? 'timeout' : (e.message || 'mreža'));
+      throw e;
     }
+  };
+  try {
+    return await Promise.any(OVERPASS.map(ask));
+  } catch (e) {
+    throw new LoadError(explain(errs));
+  } finally {
+    clearTimeout(timer);
+    ctls.forEach((c) => c.abort());
   }
-  throw new LoadError(explain(errs));
 }
 
 function processElements(elements) {
