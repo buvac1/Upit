@@ -1,0 +1,78 @@
+# Pravi bazu mesta (NL, BE, DE, DK) i objavljuje aplikaciju na GitHub Pages.
+# Baza se pravi iznova jednom nedeljno; između toga se koristi sačuvana (keš).
+name: Baza i objava
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1' # ponedeljkom u 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: week
+        run: echo "w=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: baza-${{ hashFiles('tools/build_data.py') }}-${{ steps.week.outputs.w }}
+
+      - name: Napravi bazu
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          pip install -q osmium
+          mkdir -p work
+          for c in netherlands belgium germany denmark; do
+            echo "::group::$c"
+            curl -sSfL -o "work/$c.osm.pbf" "https://download.geofabrik.de/europe/$c-latest.osm.pbf"
+            osmium tags-filter --overwrite -o "work/f-$c.osm.pbf" "work/$c.osm.pbf" \
+              nw/amenity=parking,fuel,shower,car_wash,vehicle_wash \
+              nw/highway=rest_area,services \
+              nw/shower \
+              nw/shop=laundry,dry_cleaning,supermarket,department_store,general,variety_store,doityourself,hardware,convenience,discount \
+              w/landuse=industrial
+            rm "work/$c.osm.pbf"
+            echo "::endgroup::"
+          done
+          curl -sSfL -o work/fraunhofer.csv \
+            "https://zenodo.org/api/records/14643147/files/truckParkingLocationsEurope_N13323_v04.csv/content"
+          python tools/build_data.py work data
+          du -sh data
+
+      - name: Sklopi sajt
+        run: |
+          mkdir -p _site
+          cp -r index.html app.js style.css sw.js manifest.webmanifest icon.svg icon-192.png icon-512.png data _site/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
