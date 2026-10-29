@@ -1,7 +1,7 @@
 /* Usput service worker: aplikacija radi i bez interneta (poslednja verzija iz keša).
    Strana i skripte: prvo mreža (da odmah stigne nova verzija), pa keš.
    Biblioteke i fontovi: prvo keš. Podaci (Overpass/Nominatim) i pločice mape se ne keširaju ovde. */
-const CACHE = 'usput-v4';
+const CACHE = 'usput-v5';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

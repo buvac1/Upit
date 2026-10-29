@@ -226,6 +226,11 @@ a { color: inherit; }
 .tag.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
 .tag.bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
 .tag.as24 { background: var(--c-as24); color: #fff; }
+.tag.official { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.tag.checked { background: color-mix(in srgb, var(--c-park) 18%, transparent); color: var(--c-park); }
+.tag.weak { background: transparent; color: var(--muted); border: 1px dashed var(--line); }
+.pin.weak { opacity: .5; }
+.fnote b { color: var(--fg); }
 .tag.star { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--fg); }
 
 .empty { padding: 24px 16px; color: var(--muted); text-align: center; }

@@ -3,7 +3,7 @@
    Ocene/beleške/moja mesta: localStorage na telefonu + izvoz/uvoz JSON fajla. */
 'use strict';
 
-const VERSION = '1.1.0 · 28.10.2026';
+const VERSION = '1.2.0 · 29.10.2026';
 
 /* ======================= Konfiguracija ======================= */
 
@@ -15,6 +15,12 @@ const OVERPASS = [
 ];
 const OVERPASS_TIMEOUT = 40000; // ukupno čekanje za sve servere zajedno
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const REL = {
+  1: { label: 'Zvanično', cls: 'official', text: 'Zvanični podaci upravljača autoputa (Autobahn GmbH) ili EU sertifikovan bezbedan parking (SSTPA).' },
+  2: { label: 'Provereno', cls: 'checked', text: 'Potvrđeno u bazi Fraunhofer instituta ili jasno označeno za kamione (broj mesta, servisna zona).' },
+  3: { label: 'Neprovereno', cls: 'weak', text: 'Samo jedan izvor, bez potvrde. Može biti netačno, proveri pre dolaska.' },
+};
+const SRC_NAMES = { AB: 'Autobahn GmbH (zvanično)', FH: 'Fraunhofer ISI (CC BY 4.0)', OSM: 'OpenStreetMap' };
 const DATA = 'data/';           // naša baza (NL, BE, DE, DK) — pravi je .github/workflows/podaci.yml
 const MAX_PINS = 400;           // najviše markera na mapi (najbliži)
 const CACHE_MAX = 4;            // koliko poslednjih pretraga čuvamo za rad bez interneta
@@ -53,7 +59,7 @@ const SHOP_TYPES = {
 
 const DEFAULT_FILTERS = {
   parkTruck: true, parkRest: true, parkPrice: 'all', parkSupervised: false,
-  fuelOnlyTruck: false, fuelAdblue: false,
+  fuelOnlyTruck: false, fuelAdblue: false, showUnverified: false,
   shop: { discount: true, super: true, variety: true, diy: true, mini: false },
   laundrySelf: true, laundryDrop: true, laundryUnknown: true,
   only24: false,
@@ -165,7 +171,7 @@ function classify(el) {
   const t = el.tags || {};
   const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
   if (lat == null || lon == null) return null;
-  const it = { id: el.type + '/' + el.id, osmType: el.type === 'fh' ? null : el.type, osmId: el.id, lat, lon, t, also: [] };
+  const it = { id: el.type + '/' + el.id, osmType: el.type === 'fh' || el.type === 'ab' ? null : el.type, osmId: el.id, lat, lon, t, also: [] };
 
   if (t.landuse === 'industrial') {
     it.cat = 'industrial';
@@ -190,6 +196,8 @@ function classify(el) {
     if (t.hgv === 'no') return null;
     it.price = priceOf(t);
     it.supervised = t.supervised === 'yes';
+    // pouzdanost: iz baze (usput:rel), a uživo isto pravilo kao u bazi
+    it.rel = +t['usput:rel'] || (t.hgv === 'designated' || t.hgv === 'only' || +t['capacity:hgv'] > 0 || t.highway === 'services' ? 2 : 3);
     it.name = t.name || (t.highway === 'services' ? 'Servisna zona' : t.highway === 'rest_area' ? 'Odmorište' : 'Parking za kamione');
     it.sub = t.highway === 'services' ? 'Servisna zona' : t.highway === 'rest_area' ? 'Odmorište' : 'Parking za kamione';
     if (isYes(t.shower) || t.shower === 'hot') it.also.push('shower');
@@ -199,13 +207,6 @@ function classify(el) {
     it.cat = 'wash';
     it.name = t.name || 'Perionica kamiona';
     it.sub = 'Perionica kamiona';
-    return it;
-  }
-  if (t.amenity === 'shower') {
-    it.cat = 'shower';
-    it.price = priceOf(t);
-    it.name = t.name || 'Tuš';
-    it.sub = 'Tuš';
     return it;
   }
   if (t.shop === 'laundry' || t.shop === 'dry_cleaning') {
@@ -228,14 +229,6 @@ function classify(el) {
     it.sub = SHOP_TYPES[it.shopType];
     return it;
   }
-  if (isYes(t.shower) || t.shower === 'hot') {
-    it.cat = 'shower';
-    it.price = priceOf(t);
-    it.name = t.name || 'Tuš';
-    it.sub = t.tourism === 'camp_site' || t.tourism === 'caravan_site' ? 'Kamp / autokamp sa tušem'
-      : t.amenity === 'truck_stop' ? 'Truck stop sa tušem' : 'Tuš';
-    return it;
-  }
   return null;
 }
 
@@ -255,8 +248,6 @@ function coreQuery(lat, lon, r) {
   nwr${B}[amenity=parking][name~"truck|lkw|vrachtwagen|poids|kamion|camion|autohof",i];
   nwr${B}[highway~"^(rest_area|services)$"];
   nwr${B}[amenity=fuel];
-  nwr${B}[amenity=shower];
-  nwr${B}[shower~"^(yes|hot)$"];
   nwr${B}[shop~"^(laundry|dry_cleaning)$"];
   nwr${B}[amenity~"^(car_wash|vehicle_wash)$"][hgv~"^(yes|designated|only)$"];
   nwr${B}[amenity~"^(car_wash|vehicle_wash)$"][name~"truck|lkw|vrachtwagen|poids|kamion|camion",i];
@@ -458,6 +449,7 @@ function passes(it) {
   switch (it.cat) {
     case 'parking': {
       // parking sa tušem se vidi i pod „Tuševi“ kad je kategorija Parking isključena
+      if (it.rel === 3 && !f.showUnverified) return false;
       if (!c.parking) return viaAlso;
       if (it.rest && !f.parkRest) return false;
       if (!it.rest && !f.parkTruck) return false;
@@ -477,7 +469,6 @@ function passes(it) {
     case 'laundry':
       if (!c.laundry) return false;
       return (it.laundry === 'self' && f.laundrySelf) || (it.laundry === 'drop' && f.laundryDrop) || (it.laundry === 'unknown' && f.laundryUnknown);
-    case 'shower': return c.shower;
     case 'wash': return c.wash;
     case 'industrial': return c.industrial;
     case 'mine': return c.mine;
@@ -545,7 +536,7 @@ let colorCache = {};
 function pinIcon(it) {
   const key = it.cat === 'fuel' && it.as24 ? 'as24' : it.cat;
   const color = colorCache[key] || (colorCache[key] = cssVar(CATS[key].color));
-  const rated = state.notes[it.id] ? ' rated' : '';
+  const rated = (state.notes[it.id] ? ' rated' : '') + (it.rel === 3 ? ' weak' : '');
   const size = it.as24 ? 34 : 30;
   return L.divIcon({
     className: '',
@@ -588,6 +579,7 @@ function renderMap(items) {
 
 function tagsHtml(it, short = false) {
   const t = it.t || {}, out = [];
+  if (it.rel && it.cat === 'parking') out.push(`<span class="tag ${REL[it.rel].cls}">${REL[it.rel].label}</span>`);
   if (it.as24) out.push('<span class="tag as24">AS 24</span>');
   if (it.price === 'free') out.push('<span class="tag good">Besplatno</span>');
   if (it.price === 'paid') out.push('<span class="tag">Plaća se</span>');
@@ -706,10 +698,14 @@ function factsHtml(it) {
   if (t['usput:road']) rows.push(['Autoput', esc('blizu ' + t['usput:road'])]);
   if (t['usput:zone']) rows.push(['Okolina', esc(t['usput:zone'])]);
   if (t['usput:area']) rows.push(['Površina', esc('oko ' + Number(t['usput:area']).toLocaleString('sr') + ' m²')]);
-  if (t['usput:src']) rows.push(['Izvor', 'Fraunhofer ISI (CC BY 4.0) — lokacija može biti približna']);
+  if (t['usput:info']) rows.push(['Podaci upravljača', esc(t['usput:info'])]);
+  if (it.rel && it.cat === 'parking') rows.push(['Pouzdanost', `<strong>${REL[it.rel].label}.</strong> ${REL[it.rel].text}`]);
+  const src = (t['usput:src'] || (it.cat === 'mine' ? '' : 'OSM')).split(',').filter(Boolean);
+  if (src.length) rows.push(['Izvor', esc(src.map((x) => SRC_NAMES[x] || x).join(' · '))]);
+  if (t['usput:src'] === 'FH') rows.push(['Napomena', 'Tačka je centar zone parkinga, ulaz može biti nekoliko stotina metara dalje.']);
+  if (t['usput:shower_fee'] === 'yes') rows.push(['Tuš', 'plaća se']);
   if (it.cat === 'fuel' && it.as24) rows.push(['Napomena', 'AS 24 stanice su uglavnom bez osoblja i rade samo sa AS 24 karticom (ponegde i druge kartice). Proveri pre dolaska.']);
   if (it.cat === 'industrial') rows.push(['Napomena', 'Industrijska zona, nije zvanični parking. Proveri lokalne znakove i pravila za noćenje.']);
-  if (it.cat === 'parking' && it.rest && !it.truck) rows.push(['Napomena', 'Odmorište — nije sigurno da ima mesta za kamione. Proveri znakove.']);
   if (it.mine?.note) rows.push(['Beleška', esc(it.mine.note)]);
   return rows.length ? `<dl class="d-facts">${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>` : '';
 }
@@ -851,8 +847,9 @@ function renderFilters() {
       opt('f-price-all', 'Sve cene', f.parkPrice === 'all', 'radio', 'price') +
       opt('f-price-free', 'Samo besplatni', f.parkPrice === 'free', 'radio', 'price') +
       opt('f-price-paid', 'Samo plaćeni', f.parkPrice === 'paid', 'radio', 'price') +
-      opt('f-parkSupervised', 'Samo čuvani', f.parkSupervised),
-      'Cena se vidi samo kad je upisana na mapi. „Samo besplatni“ krije mesta bez podatka o ceni.')}
+      opt('f-parkSupervised', 'Samo čuvani', f.parkSupervised) +
+      opt('f-showUnverified', 'Prikaži i neproverene', f.showUnverified),
+      '<b>Zvanično</b>: Autobahn GmbH ili EU sertifikovan parking. <b>Provereno</b>: potvrđeno u bazi Fraunhofer instituta ili jasno označeno za kamione. <b>Neprovereno</b>: samo jedan izvor, bledo na mapi. Cena se vidi samo kad je poznata; „Samo besplatni“ krije mesta bez podatka o ceni.')}
     ${fgroup('fuel', 'Gorivo',
       opt('f-fuelOnlyTruck', 'Samo označene za kamione', f.fuelOnlyTruck) +
       opt('f-fuelAdblue', 'Samo sa AdBlue', f.fuelAdblue),
@@ -872,6 +869,7 @@ function renderFilters() {
   bind('f-price-free', (v) => v && (f.parkPrice = 'free'));
   bind('f-price-paid', (v) => v && (f.parkPrice = 'paid'));
   bind('f-parkSupervised', (v) => (f.parkSupervised = v));
+  bind('f-showUnverified', (v) => (f.showUnverified = v));
   bind('f-fuelOnlyTruck', (v) => (f.fuelOnlyTruck = v));
   bind('f-fuelAdblue', (v) => (f.fuelAdblue = v));
   Object.keys(SHOP_TYPES).forEach((k) => bind('f-shop-' + k, (v) => (f.shop[k] = v)));
@@ -897,6 +895,14 @@ function saveFilters() {
 /* ======================= Moje (izvoz/uvoz) ======================= */
 
 function renderMine() {
+  const di = $('#data-info');
+  if (di) {
+    loadBaseMeta().then((m) => {
+      if (!m) { di.textContent = ''; return; }
+      const r = m.reliability || {};
+      di.textContent = `Baza parkinga od ${fmtDate(m.built)} (${(m.countries || []).join(', ')}): zvanično ${r[1] || 0}, provereno ${r[2] || 0}, neprovereno ${r[3] || 0}. Osvežava se svakog ponedeljka.`;
+    });
+  }
   const pl = $('#mine-places');
   pl.innerHTML = state.places.length ? state.places.map((p, i) => `
     <li class="item" data-i="${i}"><span class="stripe" style="background:var(--c-mine)"></span>

@@ -52,7 +52,13 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 
 - **Naša baza (Holandija, Belgija, Nemačka, Danska):** aplikacija ne zavisi od tuđih servera, nego čita sopstvenu bazu sa istog sajta, za 1–2 sekunde. Baza se pravi iznova svakog ponedeljka iz:
   - **OpenStreetMap** izvoda po zemljama (Geofabrik): pumpe, AS 24, odmorišta, parkinzi, prodavnice, tuševi, veš, perionice, industrijske zone;
-  - **Fraunhofer ISI „European Truck Parking Locations“** (CC BY 4.0, [zenodo.org/records/14643147](https://zenodo.org/records/14643147)): kamionski parkinzi kojih nema u OpenStreetMap-u, sa oznakom bezbednog parkinga (SSTPA), autoputem i okolinom. Isti izvor koristi i Buvac TMS.
+  - **Fraunhofer ISI „European Truck Parking Locations“** (CC BY 4.0, [zenodo.org/records/14643147](https://zenodo.org/records/14643147)): potvrđuje parkinge iz OpenStreetMap-a i dodaje one kojih tamo nema, sa oznakom bezbednog parkinga (SSTPA), autoputem i okolinom. Isti izvor koristi i Buvac TMS.
+  - **Autobahn GmbH des Bundes** (zvanično, Nemačka): svi Rastplätze na autoputu sa brojem mesta za kamione, WC-om i tušem.
+- **Pouzdanost parkinga** (oznaka u listi i detaljima):
+  - **Zvanično** — Autobahn GmbH ili EU sertifikovan bezbedan parking (SSTPA).
+  - **Provereno** — potvrđeno u Fraunhofer bazi, ili u OpenStreetMap-u jasno označeno za kamione (broj mesta, servisna zona).
+  - **Neprovereno** — samo jedan slab izvor. Podrazumevano su skrivena; uključuju se u **Filteri → Prikaži i neproverene** i bledi su na mapi.
+- **Šta se odbacuje:** odmorišta bez ikakve potvrde da primaju kamione i tuševi koji nisu uz parking za kamione (kampovi, plaže, bazeni). Tuš se vidi kao oznaka „Tuš“ na parkingu.
 - **Van te četiri zemlje:** aplikacija pita besplatne OpenStreetMap (Overpass) servere, kao ranije. Oni umeju da budu zagušeni, pa tamo učitavanje može da potraje ili ne uspe. Druge zemlje se dodaju u `tools/build_data.py` (COUNTRIES) i `.github/workflows/podaci.yml`.
 - Ako mesto fali ili je pogrešno, „Ispravi na mapi“ vodi na OpenStreetMap gde svako može da ga ispravi. Ispravka stiže u aplikaciju sledećeg ponedeljka.
 - **Recenzije:** Google, Truckfly i forumi se otvaraju jednim dugmetom iz detalja mesta. Automatski uvoz tih recenzija nije moguć bez njihovog API pristupa (Google traži ključ i plaća se preko limita; Truckfly i društvene mreže nemaju otvoren pristup).
@@ -66,4 +72,4 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 4. **Ruta** — šta ima duž puta do odredišta, ne samo u krugu.
 5. **Povezivanje sa Buvac TMS** — troškovi parkinga i tuševa direktno u evidenciju.
 
-Verzija 1.1.0 · 28.10.2026
+Verzija 1.2.0 · 29.10.2026
