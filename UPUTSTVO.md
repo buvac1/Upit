@@ -58,7 +58,9 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
   - **Zvanično** — Autobahn GmbH ili EU sertifikovan bezbedan parking (SSTPA).
   - **Provereno** — potvrđeno u Fraunhofer bazi, ili u OpenStreetMap-u jasno označeno za kamione (broj mesta, servisna zona).
   - **Neprovereno** — samo jedan slab izvor. Podrazumevano su skrivena; uključuju se u **Filteri → Prikaži i neproverene** i bledi su na mapi.
-- **Šta se odbacuje:** odmorišta bez ikakve potvrde da primaju kamione i tuševi koji nisu uz parking za kamione (kampovi, plaže, bazeni). Tuš se vidi kao oznaka „Tuš“ na parkingu.
+- **Šta se odbacuje:** odmorišta bez ikakve potvrde da primaju kamione i tuševi koji nisu uz parking za kamione (kampovi, plaže, bazeni).
+- **Tuševi** se vide kao oznaka na parkingu: **Tuš** = potvrđeno (Autobahn GmbH ili upisano na mapi), **Tuš verovatno** = servisna zona ili truck stop, gde tuš obično postoji, ali nije potvrđen. U Filterima možeš da uključiš „Samo potvrđeni tuševi“.
+- **Parking u ind. zoni:** parkinzi za kamione koji su u industrijskoj zoni, i veliki otvoreni parkinzi (od 2500 m²) u industrijskoj zoni koji nisu označeni za kamione. Ovi drugi su „Neprovereno“: proveri znakove i da li je noćenje dozvoljeno.
 - **Van te četiri zemlje:** aplikacija pita besplatne OpenStreetMap (Overpass) servere, kao ranije. Oni umeju da budu zagušeni, pa tamo učitavanje može da potraje ili ne uspe. Druge zemlje se dodaju u `tools/build_data.py` (COUNTRIES) i `.github/workflows/podaci.yml`.
 - Ako mesto fali ili je pogrešno, „Ispravi na mapi“ vodi na OpenStreetMap gde svako može da ga ispravi. Ispravka stiže u aplikaciju sledećeg ponedeljka.
 - **Recenzije:** Google, Truckfly i forumi se otvaraju jednim dugmetom iz detalja mesta. Automatski uvoz tih recenzija nije moguć bez njihovog API pristupa (Google traži ključ i plaća se preko limita; Truckfly i društvene mreže nemaju otvoren pristup).
@@ -72,4 +74,4 @@ Svaka ocena nosi ime vozača, pa se vidi ko je šta napisao. Uvoz ništa ne bri�
 4. **Ruta** — šta ima duž puta do odredišta, ne samo u krugu.
 5. **Povezivanje sa Buvac TMS** — troškovi parkinga i tuševa direktno u evidenciju.
 
-Verzija 1.2.0 · 29.10.2026
+Verzija 1.3.0 · 29.10.2026
