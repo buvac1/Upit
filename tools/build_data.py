@@ -9,6 +9,12 @@ Pouzdanost parkinga (oznaka usput:rel, aplikacija je prikazuje):
   2 Provereno  — potvrđeno u Fraunhofer bazi, ili OSM izričito za kamione (hgv=designated/only, broj mesta, servisna zona)
   3 Neprovereno — samo jedan slab izvor (npr. OSM hgv=yes bez potvrde); aplikacija ih podrazumevano krije
 Odbacuje se: odmorište bez ikakve potvrde da prima kamione, tuševi koji nisu uz parking za kamione (kampovi, plaže, bazeni).
+
+Parking u industrijskoj zoni (usput:ind=yes): parking za kamione koji leži u industrijskoj zoni, i veliki
+otvoreni parkinzi (od 2500 m²) u industrijskoj zoni koji nisu označeni za kamione (pouzdanost 3, „proveri na licu mesta").
+
+Tuš (shower): yes = potvrđen (Autobahn „Dusche", OSM oznaka, tuš do 300 m od parkinga);
+usput:shower=likely = verovatan (servisna zona na autoputu, Autohof, truck stop) — aplikacija piše „Tuš verovatno".
 Izlaz: data/meta.json i data/{core,shop,ind}/{i}_{j}.json — pločice od TILE × TILE stepeni.
 
 Elementi su u istom obliku kao Overpass odgovor ({type, id, lat, lon, tags}),
@@ -18,6 +24,7 @@ Pokretanje: python tools/build_data.py <folder sa f-*.osm.pbf i fraunhofer.csv> 
 """
 import csv
 import glob
+from array import array
 import urllib.parse
 import urllib.request
 import json
@@ -34,7 +41,7 @@ TILE = 0.5
 COUNTRIES = {'NL', 'BE', 'DE', 'DK'}
 
 # Samo oznake koje aplikacija prikazuje ili koristi za razvrstavanje.
-KEEP = re.compile(r'^(name|brand|operator|network|amenity|highway|shop|landuse|tourism|hgv|capacity|capacity:hgv|fee|charge|'
+KEEP = re.compile(r'^(usput:area|access|parking|name|brand|operator|network|amenity|highway|shop|landuse|tourism|hgv|capacity|capacity:hgv|fee|charge|'
                   r'supervised|opening_hours|maxstay|shower|toilets|restaurant|food|lit|fence|internet_access|phone|'
                   r'contact:phone|website|contact:website|description|self_service|laundry_service|'
                   r'addr:(street|housenumber|postcode|city)|fuel:.*|payment:.*)$')
@@ -68,7 +75,12 @@ def kind_of(t):
     if a == 'parking':
         if t.get('hgv') in YES or cap_hgv(t) or TRUCK_WORDS.search(t.get('name', '')):
             return 'core'
-        return None
+        # obični parking: kandidat za „parking u industrijskoj zoni" (proverava se kasnije: površina i zona)
+        if t.get('access') in ('private', 'customers', 'no', 'permit', 'employees', 'delivery') \
+                or t.get('parking') in ('underground', 'multi-storey', 'rooftop', 'street_side', 'lane'):
+            return None
+        return 'parkc'
+
     if a == 'shower' or t.get('shower') in ('yes', 'hot'):
         return 'showerc'
     if t.get('shop') in ('laundry', 'dry_cleaning'):
@@ -80,17 +92,62 @@ def kind_of(t):
     return None
 
 
+def area_m2(lats, lons):
+    """Površina zatvorenog poligona (približno, u m²)."""
+    if len(lats) < 4:
+        return 0
+    lat0 = math.radians(sum(lats) / len(lats))
+    kx, ky = 111320 * math.cos(lat0), 110540
+    a = 0.0
+    for i in range(len(lats) - 1):
+        a += (lons[i] * kx) * (lats[i + 1] * ky) - (lons[i + 1] * kx) * (lats[i] * ky)
+    return abs(a) / 2
+
+
+class Zones:
+    """Industrijske zone (poligoni) sa brzom pretragom: da li je tačka u zoni."""
+    C = 0.05
+
+    def __init__(self):
+        self.polys = []
+        self.idx = defaultdict(list)
+
+    def add(self, lats, lons):
+        if len(lats) < 4 or lats[0] != lats[-1] or lons[0] != lons[-1]:
+            return
+        i = len(self.polys)
+        self.polys.append((array('d', lats), array('d', lons), min(lats), max(lats), min(lons), max(lons)))
+        for gi in range(int(min(lats) // self.C), int(max(lats) // self.C) + 1):
+            for gj in range(int(min(lons) // self.C), int(max(lons) // self.C) + 1):
+                self.idx[(gi, gj)].append(i)
+
+    def contains(self, lat, lon):
+        for i in self.idx.get((int(lat // self.C), int(lon // self.C)), ()):
+            la, lo, s_, n_, w_, e_ = self.polys[i]
+            if not (s_ <= lat <= n_ and w_ <= lon <= e_):
+                continue
+            inside, j = False, len(la) - 1
+            for k in range(len(la)):
+                if (la[k] > lat) != (la[j] > lat) and lon < (lo[j] - lo[k]) * (lat - la[k]) / (la[j] - la[k]) + lo[k]:
+                    inside = not inside
+                j = k
+            if inside:
+                return True
+        return False
+
+
 class Collector(osmium.SimpleHandler):
-    def __init__(self, items):
+    def __init__(self, items, zones):
         super().__init__()
         self.items = items  # (kind, 'node/123') -> element
+        self.zones = zones
 
     def _add(self, typ, oid, tags, lat, lon):
         k = kind_of(tags)
         if not k:
             return
-        if k == 'ind':
-            tags = {x: tags[x] for x in ('name', 'landuse') if x in tags}
+        if k == 'ind' or (k == 'parkc' and 'usput:area' not in tags):
+            return
         elif k == 'showerc':
             tags = {x: tags[x] for x in ('amenity', 'shower', 'fee', 'name') if x in tags}
         else:
@@ -106,7 +163,8 @@ class Collector(osmium.SimpleHandler):
         if len(w.tags) == 0:
             return
         tags = {t.k: t.v for t in w.tags}
-        if not kind_of(tags):
+        k = kind_of(tags)
+        if not k:
             return
         lats, lons = [], []
         for nr in w.nodes:
@@ -115,6 +173,14 @@ class Collector(osmium.SimpleHandler):
                 lons.append(nr.location.lon)
         if not lats:
             return
+        if k == 'ind':
+            self.zones.add(lats, lons)
+            return
+        if k == 'parkc':
+            a = area_m2(lats, lons)
+            if a < 2500:
+                return
+            tags['usput:area'] = str(round(a))
         # sredina okvira, kao Overpass „out center"
         self._add('way', w.id, tags, (min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2)
 
@@ -345,9 +411,10 @@ def reliability(t):
 
 def main(src, out):
     items = {}
+    zones = Zones()
     for pbf in sorted(glob.glob(os.path.join(src, 'f-*.osm.pbf'))):
         t0 = time.time()
-        Collector(items).apply_file(pbf, locations=True)
+        Collector(items, zones).apply_file(pbf, locations=True)
         print(f'{os.path.basename(pbf)}: {time.time() - t0:.0f} s, ukupno {len(items)}')
 
     grid = Grid()
@@ -376,12 +443,34 @@ def main(src, out):
         else:
             dropped_rest += 1
 
-    # pouzdanost za sve parkinge
+    # pouzdanost za sve parkinge + da li su u industrijskoj zoni
+    print(f'Industrijskih zona: {len(zones.polys)}')
     rel_count = defaultdict(int)
+    ind_count = 0
     for (k, _), e in items.items():
         if k == 'core' and is_park(e):
-            e['tags']['usput:rel'] = reliability(e['tags'])
-            rel_count[e['tags']['usput:rel']] += 1
+            t = e['tags']
+            t['usput:rel'] = reliability(t)
+            rel_count[t['usput:rel']] += 1
+            if t.get('highway') != 'services' and not t.get('usput:ab') and \
+                    (zones.contains(e['lat'], e['lon']) or t.get('usput:zone') == 'industrijska zona'):
+                t['usput:ind'] = 'yes'
+                ind_count += 1
+    # veliki obični parkinzi u industrijskoj zoni (nisu označeni za kamione) — opcija, neprovereno
+    big_ind = 0
+    for key in [k for k in items if k[0] == 'parkc']:
+        e = items.pop(key)
+        if not zones.contains(e['lat'], e['lon']):
+            continue
+        if grid.near(e['lat'], e['lon'], 150, is_park):
+            continue  # već imamo parking za kamione tu
+        t = e['tags']
+        t.setdefault('name', 'Parking u industrijskoj zoni')
+        t.update({'usput:rel': '3', 'usput:ind': 'yes', 'usput:src': 'OSM', 'usput:big': 'yes'})
+        items[('core', key[1])] = e
+        big_ind += 1
+    print(f'Parking u industrijskoj zoni: za kamione {ind_count}, veliki obični {big_ind}')
+    rel_count['3'] += big_ind
 
     # tuševi: samo kao oznaka na parkingu za kamione (pouzdanost 1–2) do 300 m
     attached = dropped_sh = 0
@@ -395,7 +484,16 @@ def main(src, out):
             attached += 1
         else:
             dropped_sh += 1
-    print(f'Odbačeno odmorišta bez kamiona: {dropped_rest}; tuševi uz parking: {attached}, odbačeno (kamp, plaža…): {dropped_sh}')
+    # verovatan tuš: servisne zone na autoputu, Autohof, truck stop (bez potvrde)
+    likely = 0
+    for (k, _), e in items.items():
+        t = e['tags']
+        if k == 'core' and is_park(e) and t.get('shower') not in ('yes', 'hot') and (
+                t.get('highway') == 'services' or re.search(r'autohof|truck ?stop|routier|rasthof', t.get('name', ''), re.I)
+                or 'Truck stop' in t.get('name', '') or re.search(r'raststätte|autohof', t.get('usput:info', ''), re.I)):
+            t['usput:shower'] = 'likely'
+            likely += 1
+    print(f'Odbačeno odmorišta bez kamiona: {dropped_rest}; tuševi uz parking: {attached}, odbačeno (kamp, plaža…): {dropped_sh}, verovatnih: {likely}')
     print('Pouzdanost parkinga:', dict(sorted(rel_count.items())))
 
     tiles = defaultdict(list)
@@ -404,7 +502,9 @@ def main(src, out):
 
     meta = {'built': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'tile': TILE,
             'countries': sorted(COUNTRIES), 'core': [], 'shop': [], 'ind': [], 'counts': {},
-            'reliability': dict(sorted(rel_count.items()))}
+            'reliability': dict(sorted(rel_count.items())), 'industrial_parkings': ind_count + big_ind,
+            'showers': {'confirmed': sum(1 for (k, _), e in items.items() if k == 'core' and is_park(e) and e['tags'].get('shower') == 'yes'),
+                        'likely': likely}}
     for (k, key), els in sorted(tiles.items()):
         os.makedirs(os.path.join(out, k), exist_ok=True)
         with open(os.path.join(out, k, key + '.json'), 'w', encoding='utf-8') as f:
